@@ -1,0 +1,17 @@
+From: HAOS Mi A2 port
+Subject: [PATCH] arm64: dts: qcom: sdm660-xiaomi-jasmine: force USB host mode
+
+The ID pin (extcon-usb-gpio) is unreliable with USB-C hubs and dongles, which
+leaves dwc3 in gadget mode. HAOS has no USB gadget use, so run it as host.
+---
+--- a/arch/arm64/boot/dts/qcom/sdm660-xiaomi-jasmine.dts
++++ b/arch/arm64/boot/dts/qcom/sdm660-xiaomi-jasmine.dts
+@@ -613,7 +613,7 @@
+ 	phys = <&qusb2phy0>;
+ 	phy-names = "usb2-phy";
+ 
+-	dr_mode = "peripheral";
++	dr_mode = "host";
+ 	extcon = <&extcon_usb>;
+ };
+ 
