@@ -1,0 +1,7 @@
+config BR2_PACKAGE_QBOOTCTL
+	bool "qbootctl"
+	help
+	  Qualcomm A/B boot control tool, used to mark the booted slot as
+	  successful so the bootloader does not run out of boot attempts.
+
+	  https://github.com/linux-msm/qbootctl
