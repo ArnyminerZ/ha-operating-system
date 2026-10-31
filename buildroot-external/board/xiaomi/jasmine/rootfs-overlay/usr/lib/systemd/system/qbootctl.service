@@ -1,0 +1,12 @@
+[Unit]
+Description=Mark the Android boot slot as successful
+After=local-fs.target systemd-udev-settle.service
+Wants=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/qbootctl -m
+
+[Install]
+WantedBy=multi-user.target
