@@ -4,6 +4,11 @@
 // the "userdata" partition (or the one named by haos.disk= on the kernel
 // command line), so attach it as a loop device with a partition scan, mount
 // the selected system slot and hand over to systemd.
+//
+// The system slot is chosen here, not by the Android bootloader: the state
+// block in the bootstate partition (see jasmine-slot.sh in the rootfs overlay)
+// holds the primary slot and how many boots a not yet confirmed slot may still
+// try before falling back to the other one.
 
 #define _GNU_SOURCE
 #include <dirent.h>
@@ -21,6 +26,12 @@
 // Partition numbers of the HAOS GPT layout (genimage/partitions-os-gpt.cfg)
 #define SYSTEM_SLOT_A 3
 #define SYSTEM_SLOT_B 5
+#define BOOTSTATE_PARTITION 6
+
+// Text block at the start of the bootstate partition, written by
+// jasmine-slot.sh: "JSLT1 primary=A tries_a=3 good_a=0 tries_b=0 good_b=1"
+#define STATE_MAGIC "JSLT1"
+#define STATE_SIZE 512
 
 #define WAIT_SECONDS 30
 
@@ -156,10 +167,117 @@ static int cmdline_value(const char *cmdline, const char *key, char *value, size
 	return 0;
 }
 
+struct state {
+	int primary;	// 0 = A, 1 = B
+	int tries[2];
+	int good[2];
+};
+
+static int state_number(const char *buf, const char *key, int *value)
+{
+	const char *p = strstr(buf, key);
+
+	if (!p)
+		return 0;
+	*value = atoi(p + strlen(key));
+	return 1;
+}
+
+static int load_state(const char *dev, struct state *st)
+{
+	char buf[STATE_SIZE + 1] = "";
+	const char *p;
+	int fd = open(dev, O_RDONLY);
+	int ok;
+
+	if (fd < 0)
+		return 0;
+	ok = read(fd, buf, STATE_SIZE) == STATE_SIZE;
+	close(fd);
+	if (!ok || strncmp(buf, STATE_MAGIC " ", strlen(STATE_MAGIC) + 1))
+		return 0;
+
+	p = strstr(buf, "primary=");
+	if (!p || (p[8] != 'A' && p[8] != 'B'))
+		return 0;
+	st->primary = p[8] == 'B';
+
+	return state_number(buf, " tries_a=", &st->tries[0]) &&
+	       state_number(buf, " good_a=", &st->good[0]) &&
+	       state_number(buf, " tries_b=", &st->tries[1]) &&
+	       state_number(buf, " good_b=", &st->good[1]);
+}
+
+static void save_state(const char *dev, const struct state *st)
+{
+	char buf[STATE_SIZE] = "";
+	int fd = open(dev, O_WRONLY);
+
+	snprintf(buf, sizeof(buf), STATE_MAGIC " primary=%c tries_a=%d good_a=%d tries_b=%d good_b=%d\n",
+		 st->primary ? 'B' : 'A', st->tries[0], st->good[0], st->tries[1], st->good[1]);
+	if (fd < 0)
+		return;
+	if (pwrite(fd, buf, STATE_SIZE, 0) == STATE_SIZE)
+		fsync(fd);
+	close(fd);
+}
+
+// Pick the slot to boot: the primary one, or the other one when the primary was
+// never confirmed and used up its tries. Booting an unconfirmed slot costs a try.
+static int choose_slot(struct state *st)
+{
+	int i, s;
+
+	for (i = 0; i < 2; i++) {
+		s = st->primary ^ i;
+		if (st->good[s])
+			break;
+		if (st->tries[s] > 0) {
+			st->tries[s]--;
+			break;
+		}
+	}
+	if (i == 2)
+		return st->primary;	// nothing bootable, try the primary anyway
+
+	st->primary = s;
+	return s;
+}
+
+// Make /proc/cmdline report the chosen slot, as RAUC and the Supervisor read
+// rauc.slot and root from there. The boot image always names slot A.
+static void patch_cmdline(const char *cmdline, int slot)
+{
+	char out[4096], *p;
+	size_t n;
+	FILE *f;
+
+	snprintf(out, sizeof(out), "%s", cmdline);
+	if (slot) {
+		if ((p = strstr(out, "rauc.slot=A")))
+			p[10] = 'B';
+		if ((p = strstr(out, ROOT_PARTUUID_A)))
+			memcpy(p, ROOT_PARTUUID_B, strlen(ROOT_PARTUUID_B));
+	}
+
+	mkdir("/run", 0755);
+	if (mount("tmpfs", "/run", "tmpfs", 0, "size=64k") < 0)
+		return;
+	f = fopen("/run/cmdline", "w");
+	if (!f)
+		return;
+	n = strlen(out);
+	fwrite(out, 1, n, f);
+	fclose(f);
+	mount("/run/cmdline", "/proc/cmdline", NULL, MS_BIND, NULL);
+	umount2("/run", MNT_DETACH);
+}
+
 int main(int argc, char **argv)
 {
-	char cmdline[4096], disk[64], slot[8], backing[64], loopdev[64], root[96];
-	int num, system_partition;
+	char cmdline[4096], disk[64], backing[64], loopdev[64], root[96], statedev[96];
+	int num, system_partition, slot = 0;
+	struct state st = { .primary = 0, .tries = { 0, 0 }, .good = { 1, 0 } };
 
 	(void)argc;
 
@@ -170,10 +288,6 @@ int main(int argc, char **argv)
 	read_cmdline(cmdline, sizeof(cmdline));
 	if (!cmdline_value(cmdline, "haos.disk", disk, sizeof(disk)))
 		snprintf(disk, sizeof(disk), "%s", DEFAULT_DISK);
-	if (!cmdline_value(cmdline, "rauc.slot", slot, sizeof(slot)))
-		snprintf(slot, sizeof(slot), "A");
-	system_partition = strcmp(slot, "B") ? SYSTEM_SLOT_A : SYSTEM_SLOT_B;
-
 	// eMMC probing finishes asynchronously
 	for (num = 0; num < WAIT_SECONDS * 10; num++) {
 		if (find_partname(disk, backing, sizeof(backing)))
@@ -188,6 +302,18 @@ int main(int argc, char **argv)
 	num = attach_loop(backing, loopdev, sizeof(loopdev));
 	if (num < 0)
 		die("cannot attach loop device");
+
+	// A missing or damaged state block (fresh install) boots slot A
+	snprintf(statedev, sizeof(statedev), "%sp%d", loopdev, BOOTSTATE_PARTITION);
+	if (wait_for(statedev) && load_state(statedev, &st)) {
+		struct state old = st;
+
+		slot = choose_slot(&st);
+		if (memcmp(&old, &st, sizeof(st)))
+			save_state(statedev, &st);
+	}
+	system_partition = slot ? SYSTEM_SLOT_B : SYSTEM_SLOT_A;
+	patch_cmdline(cmdline, slot);
 
 	snprintf(root, sizeof(root), "%sp%d", loopdev, system_partition);
 	if (!wait_for(root))
