@@ -1,0 +1,26 @@
+From: HAOS Mi A2 port
+Subject: [PATCH] gpt-utils: treat any mmcblk device as eMMC
+
+The eMMC is /dev/mmcblk1 on phones where the SD card controller comes first,
+but only /dev/mmcblk0 was accepted. The tool then assumed UFS and failed to
+open /dev/bsg/ufs-bsg0 when setting the active slot.
+---
+--- a/gpt-utils.c	2025-03-24 23:31:41.000000000 +0100
++++ b/gpt-utils.c	2026-11-01 11:20:44.238895119 +0100
+@@ -812,5 +812,5 @@
+ 	if (get_dev_path_from_partition_name(part, devpath, sizeof(devpath)))
+ 		return false;
+ 
+-	return !strcmp(devpath, EMMC_DEVICE);
++	return !strncmp(devpath, EMMC_DEVICE_PREFIX, strlen(EMMC_DEVICE_PREFIX));
+ }
+--- a/gpt-utils.h	2025-03-24 23:31:41.000000000 +0100
++++ b/gpt-utils.h	2026-11-01 11:20:44.239042558 +0100
+@@ -95,6 +95,7 @@
+ #define GPT_PTN_PATH_MAX sizeof(BOOT_DEV_DIR) + MAX_GPT_NAME_SIZE + 2
+ 
+ #define EMMC_DEVICE "/dev/mmcblk0"
++#define EMMC_DEVICE_PREFIX "/dev/mmcblk"
+ 
+ #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+ 
