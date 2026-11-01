@@ -1,0 +1,12 @@
+#!/bin/sh
+# Copy the jasmine_update custom integration, shipped with the OS, into the
+# Home Assistant config so that it is updated together with the OS.
+
+set -eu
+
+SRC=/usr/share/jasmine/custom_components/jasmine_update
+DST=/mnt/data/supervisor/homeassistant/custom_components/jasmine_update
+
+mkdir -p "${DST%/*}"
+rm -rf "${DST}"
+cp -a "${SRC}" "${DST}"

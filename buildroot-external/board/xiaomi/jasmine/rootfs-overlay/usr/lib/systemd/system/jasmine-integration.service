@@ -1,0 +1,13 @@
+[Unit]
+Description=Install the Mi A2 update integration into the Home Assistant config
+After=mnt-data.mount
+Requires=mnt-data.mount
+Before=haos-supervisor.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/jasmine-integration
+
+[Install]
+WantedBy=multi-user.target
