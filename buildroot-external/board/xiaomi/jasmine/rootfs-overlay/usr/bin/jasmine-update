@@ -12,8 +12,10 @@
 set -eu
 
 REPO="${JASMINE_UPDATE_REPO:-ArnyminerZ/ha-operating-system}"
-DIR=/mnt/data/jasmine-update
-INSTALLED="${DIR}/installed"
+# The share folder is also visible to Home Assistant (the update entity of the
+# jasmine_update integration), which keeps the same record: release per slot
+DIR=/mnt/data/supervisor/share/jasmine-update
+INSTALLED="${DIR}/installed.json"
 TAG_PREFIX="jasmine-"
 
 die() {
@@ -35,7 +37,13 @@ release=$(latest_release) || die "cannot read the releases of ${REPO}"
 [ -n "${release}" ] || die "no ${TAG_PREFIX}* release found in ${REPO}"
 
 tag=$(echo "${release}" | jq -r .tag_name)
-current=$(cat "${INSTALLED}" 2>/dev/null || echo "unknown")
+boot_slot=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^rauc.slot=//p')
+case "${boot_slot}" in
+    A) target_slot=B ;;
+    B) target_slot=A ;;
+    *) die "cannot tell which slot is running" ;;
+esac
+current=$(jq -r --arg slot "${boot_slot}" '.[$slot] // "unknown"' "${INSTALLED}" 2>/dev/null || echo "unknown")
 
 echo "Latest release: ${tag}"
 echo "Installed:      ${current}"
@@ -59,7 +67,7 @@ case "${command}" in
         trap 'rm -f "${bundle}"' EXIT
 
         echo "Downloading ${bundle_url}"
-        curl -fL --retry 3 -o "${bundle}" "${bundle_url}"
+        curl -fL --retry 3 -sS -o "${bundle}" "${bundle_url}"
 
         if [ -n "${sum_url}" ]; then
             expected=$(curl -fsSL "${sum_url}" | cut -d' ' -f1)
@@ -68,7 +76,9 @@ case "${command}" in
         fi
 
         rauc install "${bundle}"
-        echo "${tag}" > "${INSTALLED}"
+        record=$(cat "${INSTALLED}" 2>/dev/null || echo '{}')
+        echo "${record}" | jq -c --arg slot "${target_slot}" --arg tag "${tag}" '.[$slot] = $tag' > "${INSTALLED}.new"
+        mv "${INSTALLED}.new" "${INSTALLED}"
         echo "Installed ${tag}, it boots after a reboot and falls back if it fails."
 
         if [ "${reboot_after}" = yes ]; then
