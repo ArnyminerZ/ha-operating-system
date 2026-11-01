@@ -1,1 +1,1 @@
-console=tty0 panic=10
+console=tty0 panic=10 module_blacklist=hci_uart,qcom_smbx
