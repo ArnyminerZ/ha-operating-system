@@ -10,7 +10,7 @@ bootloader.
 - The Android bootloader loads `boot.img` (gzipped kernel with appended device
   tree and a small initramfs). The initramfs attaches the HAOS disk image
   stored in the `userdata` partition as a loop device and mounts the system slot
-  given by `rauc.slot=`.
+  chosen by the state block in the bootstate partition (see "Updates").
 
 ## Install
 
@@ -24,7 +24,8 @@ fastboot flash boot_b haos_xiaomi-jasmine-<version>-boot-A.img
 ```
 
 The previous contents of `userdata` are overwritten. The boot image name refers
-to the HAOS slot (`rauc.slot=A`), not to the Android slot.
+to the HAOS slot it names (`rauc.slot=A`), not to the Android slot. The
+initramfs fixes `rauc.slot` and `root` in `/proc/cmdline` when it boots slot B.
 
 To try HAOS without touching `userdata`, put the disk image into another
 partition and boot it from RAM with the disk name on the kernel command line,
@@ -33,6 +34,20 @@ for example `haos.disk=system_a` and `fastboot boot`.
 `qbootctl.service` marks the Android boot slot as successful on every boot,
 otherwise the bootloader runs out of boot attempts and falls back to fastboot.
 `panic=10` makes a crashing kernel reboot, which also uses up a boot attempt.
+
+## Updates
+
+The Android bootloader is not used to switch slots, changing its partition
+table flags is unreliable on this phone. Instead the first sector of the
+`hassos-bootstate` partition holds `JSLT1 primary=A tries_a=3 good_a=0
+tries_b=0 good_b=1`, written by the RAUC backend `android-slot.sh`. The
+initramfs boots the primary slot while it is confirmed good or has tries left
+(each boot of an unconfirmed slot uses one), otherwise the other slot. A blank
+block means a fresh install and boots slot A.
+
+An OTA bundle only replaces the system partition (and the unused kernel
+partition), so the boot image must stay compatible with it. A new kernel or
+initramfs still needs `fastboot flash boot` from a PC.
 
 ## Known issues
 
