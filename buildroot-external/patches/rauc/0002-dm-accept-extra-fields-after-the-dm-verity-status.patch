@@ -1,0 +1,33 @@
+dm: accept extra fields after the dm-verity status
+
+Linux 6.19 appends more fields to the dm-verity status ("V -" for a fully
+verified device), so the exact comparison against "V" made mounting every
+verity bundle fail with "Unexpected dm-verity status". The first word is what
+tells whether the device is verified.
+
+---
+--- a/src/dm.c	2026-11-01 13:07:58.828246022 +0100
++++ b/src/dm.c	2026-11-01 13:07:58.839615982 +0100
+@@ -83,6 +83,8 @@
+ gboolean r_dm_setup(RaucDM *dm, GError **error)
+ {
+ 	gboolean res = FALSE;
++	const gchar *expected;
++	gboolean status_ok;
+ 	int dmfd = -1;
+ 	int checkfd = -1;
+ 	char checkbuf[1];
+@@ -235,7 +237,12 @@
+ 		res = FALSE;
+ 		goto out_remove_dm;
+ 	}
+-	if (g_strcmp0(setup.params, dmstatus_by_dmtype(dm->type)) != 0) {
++	/* newer kernels append fields after the status word ("V -") */
++	expected = dmstatus_by_dmtype(dm->type);
++	status_ok = g_strcmp0(setup.params, expected) == 0;
++	if (dm->type == RAUC_DM_VERITY && g_str_has_prefix(setup.params, expected))
++		status_ok = status_ok || setup.params[strlen(expected)] == ' ';
++	if (!status_ok) {
+ 		g_set_error(error,
+ 				G_FILE_ERROR,
+ 				G_FILE_ERROR_FAILED,
