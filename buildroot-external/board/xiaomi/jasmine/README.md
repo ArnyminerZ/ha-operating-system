@@ -47,3 +47,10 @@ otherwise the bootloader runs out of boot attempts and falls back to fastboot.
 - The touchscreen does not work, its driver never registers an input device.
 - The boot image (kernel) and the system partition (kernel modules) are
   installed separately, they must always be updated together.
+
+## Screen timeout
+
+`screen-timeout.service` switches the backlight off after 30 seconds without a
+button press, and a volume key switches it on again. The touchscreen can not be
+used for this, and the power key powers the device off. Change `TIMEOUT` in the
+service to use another time.

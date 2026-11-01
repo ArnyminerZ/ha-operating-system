@@ -1,0 +1,53 @@
+#!/bin/sh
+# Switch the LCD backlight off after a timeout without button presses and
+# switch it on again when a volume key is pressed.
+#
+# The touchscreen is not available as an input device, and the power key
+# powers the device off, so only the volume keys are used.
+
+TIMEOUT="${TIMEOUT:-30}"
+BACKLIGHT="${BACKLIGHT:-/sys/class/backlight/backlight}"
+LAST="${LAST:-/run/screen-timeout.last}"
+KEYS="${KEYS-gpio-keys pm8941_resin}"
+
+# The backlight appears when the display driver is loaded
+while [ ! -w "${BACKLIGHT}/brightness" ]; do
+    sleep 2
+done
+LEVEL=$(( $(cat "${BACKLIGHT}/max_brightness") / 2 ))
+
+# Each key device updates the time of the last activity
+for name in ${KEYS}; do
+    event=$(grep -A5 "Name=\"${name}\"" /proc/bus/input/devices | grep -o 'event[0-9]*' | head -n 1)
+    if [ -z "${event}" ]; then
+        echo "Input device ${name} not found" >&2
+        continue
+    fi
+    (
+        while :; do
+            dd if="/dev/input/${event}" of=/dev/null bs=24 count=1 2>/dev/null || sleep 1
+            date +%s > "${LAST}"
+        done
+    ) &
+done
+
+date +%s > "${LAST}"
+echo "${LEVEL}" > "${BACKLIGHT}/brightness"
+state=on
+off_at=0
+
+while :; do
+    now=$(date +%s)
+    last=$(cat "${LAST}")
+    if [ "${state}" = on ]; then
+        if [ $(( now - last )) -ge "${TIMEOUT}" ]; then
+            echo 0 > "${BACKLIGHT}/brightness"
+            state=off
+            off_at=${now}
+        fi
+    elif [ "${last}" -ge "${off_at}" ]; then
+        echo "${LEVEL}" > "${BACKLIGHT}/brightness"
+        state=on
+    fi
+    sleep 1
+done
