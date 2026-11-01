@@ -15,6 +15,14 @@ while [ ! -w "${BACKLIGHT}/brightness" ]; do
     sleep 2
 done
 LEVEL=$(( $(cat "${BACKLIGHT}/max_brightness") / 2 ))
+echo "${LEVEL}" > "${BACKLIGHT}/brightness"
+
+# The boot splash is shown until the CLI starts, so count the idle time from there
+waited=0
+while ! systemctl --quiet is-active ha-cli@tty1.service && [ "${waited}" -lt 600 ]; do
+    sleep 1
+    waited=$(( waited + 1 ))
+done
 
 # Each key device updates the time of the last activity
 for name in ${KEYS}; do
