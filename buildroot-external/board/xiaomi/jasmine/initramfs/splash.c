@@ -37,6 +37,12 @@ struct screen {
 
 static volatile sig_atomic_t stop;
 
+// The init process moves /dev and /sys into the real root and leaves this
+// process in the emptied initramfs root. Directory descriptors opened before
+// that keep pointing at the moved mounts.
+static int dev_dir = -1;
+static int sys_dir = -1;
+
 static void on_term(int sig)
 {
 	(void)sig;
@@ -137,12 +143,27 @@ static void draw_spinner(struct screen *s, float head)
 }
 
 #ifndef TEST
+static void current_name(char *name, size_t len)
+{
+	int fd = openat(sys_dir, "class/graphics/fb0/name", O_RDONLY);
+	ssize_t n;
+
+	name[0] = 0;
+	if (fd < 0)
+		return;
+	n = read(fd, name, len - 1);
+	close(fd);
+	if (n > 0) {
+		name[n] = 0;
+		name[strcspn(name, "\n")] = 0;
+	}
+}
+
 static int open_screen(struct screen *s, char *name, size_t name_len)
 {
 	struct fb_var_screeninfo var;
 	struct fb_fix_screeninfo fix;
-	FILE *f;
-	int fd = open("/dev/fb0", O_RDWR);
+	int fd = openat(dev_dir, "fb0", O_RDWR);
 
 	if (fd < 0)
 		return -1;
@@ -164,26 +185,8 @@ static int open_screen(struct screen *s, char *name, size_t name_len)
 	s->shift_g = var.green.offset;
 	s->shift_b = var.blue.offset;
 
-	name[0] = 0;
-	f = fopen("/sys/class/graphics/fb0/name", "r");
-	if (f) {
-		if (fgets(name, name_len, f))
-			name[strcspn(name, "\n")] = 0;
-		fclose(f);
-	}
+	current_name(name, name_len);
 	return 0;
-}
-
-static void current_name(char *name, size_t len)
-{
-	FILE *f = fopen("/sys/class/graphics/fb0/name", "r");
-
-	name[0] = 0;
-	if (f) {
-		if (fgets(name, len, f))
-			name[strcspn(name, "\n")] = 0;
-		fclose(f);
-	}
 }
 
 int main(void)
@@ -193,6 +196,9 @@ int main(void)
 	char name[64] = "", now[64];
 	float head = 0.0f;
 	int frame = 0, have = 0;
+
+	dev_dir = open("/dev", O_RDONLY | O_DIRECTORY);
+	sys_dir = open("/sys", O_RDONLY | O_DIRECTORY);
 
 	sigaction(SIGTERM, &sa, NULL);
 	sigaction(SIGINT, &sa, NULL);
@@ -208,6 +214,9 @@ int main(void)
 			have = 1;
 		}
 
+		// the console takeover repaints the screen, so redraw the logo now and then
+		if (frame % 20 == 0)
+			draw_logo(&s);
 		draw_spinner(&s, head);
 		head = fmodf(head + 0.28f, 2 * (float)M_PI);
 		usleep(FRAME_US);
