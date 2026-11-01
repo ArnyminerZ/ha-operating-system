@@ -1,0 +1,11 @@
+[Unit]
+Description=Switch the LCD backlight off after a timeout, wake on a volume key
+
+[Service]
+Environment=TIMEOUT=30
+ExecStart=/usr/libexec/screen-timeout
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
