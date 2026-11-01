@@ -285,6 +285,12 @@ int main(int argc, char **argv)
 	mount("sysfs", "/sys", "sysfs", 0, NULL);
 	mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
 
+	// The splash keeps running after the switch to the system, the CLI stops it
+	if (!access("/jasmine-splash", X_OK) && fork() == 0) {
+		execl("/jasmine-splash", "jasmine-splash", (char *)NULL);
+		_exit(1);
+	}
+
 	read_cmdline(cmdline, sizeof(cmdline));
 	if (!cmdline_value(cmdline, "haos.disk", disk, sizeof(disk)))
 		snprintf(disk, sizeof(disk), "%s", DEFAULT_DISK);

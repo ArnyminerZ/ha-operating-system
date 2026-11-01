@@ -24,6 +24,8 @@ function create_initramfs() {
     "${cc}" -static -Os -Wall \
         "-DROOT_PARTUUID_A=\"${SYSTEM_PARTUUID_A}\"" "-DROOT_PARTUUID_B=\"${SYSTEM_PARTUUID_B}\"" -o "${initramfs_dir}/init" "${BOARD_DIR}/initramfs/init.c"
 
+    "${cc}" -static -Os -Wall -o "${initramfs_dir}/jasmine-splash" "${BOARD_DIR}/initramfs/splash.c" -lm
+
     (cd "${initramfs_dir}" && find . | cpio -o -H newc --quiet --owner=0:0 | gzip -9) > "${BINARIES_DIR}/initramfs.cpio.gz"
 }
 

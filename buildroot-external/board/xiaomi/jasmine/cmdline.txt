@@ -1,1 +1,1 @@
-console=tty0 panic=10 module_blacklist=hci_uart,qcom_smbx
+console=tty0 panic=10 module_blacklist=hci_uart,qcom_smbx quiet loglevel=1 vt.global_cursor_default=0 systemd.show_status=false clk_ignore_unused pd_ignore_unused
