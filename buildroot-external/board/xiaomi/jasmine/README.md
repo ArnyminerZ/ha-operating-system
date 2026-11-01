@@ -49,6 +49,21 @@ An OTA bundle only replaces the system partition (and the unused kernel
 partition), so the boot image must stay compatible with it. A new kernel or
 initramfs still needs `fastboot flash boot` from a PC.
 
+### Installing updates
+
+Releases of the fork carry the signed `.raucb` bundle. On the phone run
+`jasmine-update` to compare the latest `jasmine-*` release with the installed
+one, and `jasmine-update install --reboot` to install it into the other slot.
+The Supervisor cannot do this, its update feed is hard-coded in the Supervisor
+and has no entry for this board.
+
+To publish a release, build with `make xiaomi_jasmine` and run
+`board/xiaomi/jasmine/release.sh` (needs the `gh` CLI). The bundle is signed
+with the key of the build, keep it private and use the same one for every
+release, the phone only accepts bundles signed by the certificate in its image.
+The workflow `jasmine-upstream.yaml` opens an issue, and a draft pull request
+when it merges cleanly, for every new upstream release.
+
 ## Known issues
 
 - Bluetooth does not work. The controller needs firmware that is not packaged,

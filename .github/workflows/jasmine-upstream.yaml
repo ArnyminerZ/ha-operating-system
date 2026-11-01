@@ -1,0 +1,77 @@
+---
+name: Watch upstream releases
+
+# Opens an issue for every new release of home-assistant/operating-system and,
+# when the release merges cleanly into xiaomi-jasmine, a draft pull request.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+env:
+  UPSTREAM: home-assistant/operating-system
+  BRANCH: xiaomi-jasmine
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  watch:
+    name: Look for a new upstream release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH }}
+          fetch-depth: 0
+          submodules: false
+
+      - name: Find the latest upstream release
+        id: upstream
+        run: |
+          tag=$(gh release list --repo "${UPSTREAM}" --exclude-pre-releases --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          git remote add upstream "https://github.com/${UPSTREAM}.git"
+          git fetch --no-tags upstream "refs/tags/${tag}:refs/tags/upstream-${tag}"
+          if git merge-base --is-ancestor "upstream-${tag}" "origin/${BRANCH}"; then
+            echo "new=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "new=true" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Merge the release and open the issue and pull request
+        if: steps.upstream.outputs.new == 'true'
+        env:
+          TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          title="Upstream release ${TAG}"
+          if [ -n "$(gh issue list --state all --search "\"${title}\" in:title" --json number --jq '.[0].number')" ]; then
+            echo "Already reported."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          branch="upstream/${TAG}"
+          git checkout -b "${branch}"
+          if git merge --no-ff -m "Merge upstream release ${TAG}" "upstream-${TAG}"; then
+            if git push origin "${branch}"; then
+              gh pr create --draft --base "${BRANCH}" --head "${branch}" \
+                --title "${title}" \
+                --body "Clean merge of upstream \`${TAG}\`. Build it locally with \`make xiaomi_jasmine\`, check the kernel patches and the boot image, then release it with \`board/xiaomi/jasmine/release.sh\`."
+              pr=$(gh pr list --head "${branch}" --json url --jq '.[0].url')
+              gh issue create --title "${title}" --body "Upstream published \`${TAG}\`. It merges cleanly, see the draft pull request ${pr}."
+            else
+              gh issue create --title "${title}" --body "Upstream published \`${TAG}\`. It merges cleanly, but pushing the branch failed (usually because it changes workflow files, which the workflow token cannot push). Merge \`${TAG}\` from \`${UPSTREAM}\` by hand."
+            fi
+          else
+            files=$(git diff --name-only --diff-filter=U | sed 's/^/- /')
+            git merge --abort
+            gh issue create --title "${title}" --body "$(printf 'Upstream published `%s`. It does not merge cleanly into `%s`, conflicts in:\n\n%s\n\nMerge it by hand and rebuild.' "${TAG}" "${BRANCH}" "${files}")"
+          fi

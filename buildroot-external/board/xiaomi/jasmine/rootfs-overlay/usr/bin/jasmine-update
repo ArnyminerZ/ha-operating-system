@@ -1,0 +1,81 @@
+#!/bin/sh
+# Update HAOS from the GitHub releases of the fork.
+#
+#   jasmine-update            show the latest release and whether it is installed
+#   jasmine-update install    download and install it into the other slot
+#   jasmine-update install --reboot
+#
+# The Supervisor only reads the official version feed, which has no entry for
+# this board, so updates are installed from here. The bundle goes to the data
+# partition first, /tmp is too small. RAUC checks its signature.
+
+set -eu
+
+REPO="${JASMINE_UPDATE_REPO:-ArnyminerZ/ha-operating-system}"
+DIR=/mnt/data/jasmine-update
+INSTALLED="${DIR}/installed"
+TAG_PREFIX="jasmine-"
+
+die() {
+    echo "jasmine-update: $*" >&2
+    exit 1
+}
+
+latest_release() {
+    curl -fsS "https://api.github.com/repos/${REPO}/releases?per_page=30" |
+        jq -c --arg prefix "${TAG_PREFIX}" '
+            [.[] | select(.draft == false and .prerelease == false and (.tag_name | startswith($prefix)))][0] // empty'
+}
+
+command="${1:-check}"
+reboot_after=no
+[ "${2:-}" = "--reboot" ] && reboot_after=yes
+
+release=$(latest_release) || die "cannot read the releases of ${REPO}"
+[ -n "${release}" ] || die "no ${TAG_PREFIX}* release found in ${REPO}"
+
+tag=$(echo "${release}" | jq -r .tag_name)
+current=$(cat "${INSTALLED}" 2>/dev/null || echo "unknown")
+
+echo "Latest release: ${tag}"
+echo "Installed:      ${current}"
+
+if [ "${tag}" = "${current}" ]; then
+    echo "Up to date."
+    exit 0
+fi
+
+case "${command}" in
+    check)
+        echo "Update available, run: jasmine-update install"
+        ;;
+    install)
+        bundle_url=$(echo "${release}" | jq -r '[.assets[] | select(.name | endswith(".raucb"))][0].browser_download_url // empty')
+        sum_url=$(echo "${release}" | jq -r '[.assets[] | select(.name | endswith(".raucb.sha256"))][0].browser_download_url // empty')
+        [ -n "${bundle_url}" ] || die "release ${tag} has no .raucb bundle"
+
+        mkdir -p "${DIR}"
+        bundle="${DIR}/update.raucb"
+        trap 'rm -f "${bundle}"' EXIT
+
+        echo "Downloading ${bundle_url}"
+        curl -fL --retry 3 -o "${bundle}" "${bundle_url}"
+
+        if [ -n "${sum_url}" ]; then
+            expected=$(curl -fsSL "${sum_url}" | cut -d' ' -f1)
+            actual=$(sha256sum "${bundle}" | cut -d' ' -f1)
+            [ "${expected}" = "${actual}" ] || die "checksum mismatch, not installing"
+        fi
+
+        rauc install "${bundle}"
+        echo "${tag}" > "${INSTALLED}"
+        echo "Installed ${tag}, it boots after a reboot and falls back if it fails."
+
+        if [ "${reboot_after}" = yes ]; then
+            reboot
+        fi
+        ;;
+    *)
+        die "unknown command '${command}', use check or install [--reboot]"
+        ;;
+esac
