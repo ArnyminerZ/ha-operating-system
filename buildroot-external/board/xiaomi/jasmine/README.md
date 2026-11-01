@@ -33,3 +33,17 @@ for example `haos.disk=system_a` and `fastboot boot`.
 `qbootctl.service` marks the Android boot slot as successful on every boot,
 otherwise the bootloader runs out of boot attempts and falls back to fastboot.
 `panic=10` makes a crashing kernel reboot, which also uses up a boot attempt.
+
+## Known issues
+
+- Bluetooth does not work. The controller needs firmware that is not packaged,
+  and its driver (`hci_uart`) crashes the kernel Bluetooth code, which hangs
+  Home Assistant. The driver is blocked with `module_blacklist` on the kernel
+  command line, a file in `/etc/modprobe.d` does not stop it from loading.
+- The charger driver (`qcom_smbx`) can crash with a NULL pointer while the
+  charger properties are read, which kills the Supervisor at boot. It is
+  blocked the same way. The charger hardware keeps charging on its own, only
+  the battery level from the fuel gauge is available in Linux.
+- The touchscreen does not work, its driver never registers an input device.
+- The boot image (kernel) and the system partition (kernel modules) are
+  installed separately, they must always be updated together.
