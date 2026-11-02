@@ -13,7 +13,16 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from . import rauc
-from .const import DOMAIN, INSTALLED_FILE, RELEASES_URL, SCAN_INTERVAL, SHARE_DIR, TAG_PREFIX
+from .const import (
+    BATTERY_INTERVAL,
+    BATTERY_PATH,
+    DOMAIN,
+    INSTALLED_FILE,
+    RELEASES_URL,
+    SCAN_INTERVAL,
+    SHARE_DIR,
+    TAG_PREFIX,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +47,15 @@ class UpdateData:
     installed: str | None
 
 
-type JasmineConfigEntry = ConfigEntry[JasmineCoordinator]
+@dataclass
+class RuntimeData:
+    """Coordinators of the config entry."""
+
+    updates: JasmineCoordinator
+    battery: BatteryCoordinator
+
+
+type JasmineConfigEntry = ConfigEntry[RuntimeData]
 
 
 def read_installed(slot: str) -> str | None:
@@ -93,3 +110,38 @@ class JasmineCoordinator(DataUpdateCoordinator[UpdateData]):
 
         installed = await self.hass.async_add_executor_job(read_installed, boot_slot)
         return UpdateData(release, boot_slot, installed)
+
+
+def read_battery() -> dict[str, float]:
+    """Read the fuel gauge, values the driver does not report are left out."""
+    scale = {
+        "capacity": 1,
+        "voltage_now": 1e-6,
+        "current_now": 1e-6,
+        "temp": 0.1,
+        "charge_full_design": 1e-6,
+    }
+    data: dict[str, float] = {}
+    for name, factor in scale.items():
+        try:
+            data[name] = int(Path(BATTERY_PATH, name).read_text()) * factor
+        except (OSError, ValueError):
+            continue
+    if "voltage_now" in data and "current_now" in data:
+        data["power"] = data["voltage_now"] * data["current_now"]
+    return data
+
+
+class BatteryCoordinator(DataUpdateCoordinator[dict[str, float]]):
+    """Poll the fuel gauge."""
+
+    config_entry: JasmineConfigEntry
+
+    def __init__(self, hass: HomeAssistant, entry: JasmineConfigEntry) -> None:
+        super().__init__(hass, _LOGGER, config_entry=entry, name=f"{DOMAIN}_battery", update_interval=BATTERY_INTERVAL)
+
+    async def _async_update_data(self) -> dict[str, float]:
+        data = await self.hass.async_add_executor_job(read_battery)
+        if not data:
+            raise UpdateFailed("No battery data")
+        return data

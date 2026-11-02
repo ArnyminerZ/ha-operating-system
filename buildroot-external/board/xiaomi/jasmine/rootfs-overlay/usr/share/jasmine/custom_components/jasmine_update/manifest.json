@@ -1,7 +1,9 @@
 {
   "domain": "jasmine_update",
-  "name": "Mi A2 HAOS updates",
-  "after_dependencies": ["hassio"],
+  "name": "Xiaomi Mi A2 (HAOS)",
+  "after_dependencies": [
+    "hassio"
+  ],
   "codeowners": [],
   "config_flow": true,
   "documentation": "https://github.com/ArnyminerZ/ha-operating-system/tree/xiaomi-jasmine/buildroot-external/board/xiaomi/jasmine",
@@ -9,5 +11,5 @@
   "iot_class": "cloud_polling",
   "requirements": [],
   "single_config_entry": true,
-  "version": "1.0.0"
+  "version": "1.1.0"
 }

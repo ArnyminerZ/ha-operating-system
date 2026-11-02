@@ -5,16 +5,18 @@ from __future__ import annotations
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .coordinator import JasmineConfigEntry, JasmineCoordinator
+from .coordinator import BatteryCoordinator, JasmineConfigEntry, JasmineCoordinator, RuntimeData
 
-PLATFORMS = [Platform.UPDATE]
+PLATFORMS = [Platform.SENSOR, Platform.UPDATE]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: JasmineConfigEntry) -> bool:
     """Set up the integration."""
-    coordinator = JasmineCoordinator(hass, entry)
-    await coordinator.async_config_entry_first_refresh()
-    entry.runtime_data = coordinator
+    updates = JasmineCoordinator(hass, entry)
+    battery = BatteryCoordinator(hass, entry)
+    await updates.async_config_entry_first_refresh()
+    await battery.async_refresh()
+    entry.runtime_data = RuntimeData(updates, battery)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

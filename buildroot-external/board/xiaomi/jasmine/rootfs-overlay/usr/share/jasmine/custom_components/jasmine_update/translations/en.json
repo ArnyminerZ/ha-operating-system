@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Adds an update entity that installs releases of the Xiaomi Mi A2 fork of Home Assistant OS from GitHub."
+        "description": "Adds the HAOS update entity and the battery sensors of the Xiaomi Mi A2."
       }
     },
     "abort": {
